@@ -35,6 +35,20 @@ class ActionPayload(BaseModel):
     remark: str | None = None
 
 
+class QueryExecutePayload(BaseModel):
+    """OLAP 查询执行载荷：高频筛选参数（日期、门店等）与可选分页。"""
+
+    filters: dict[str, Any] = Field(default_factory=dict)
+    remark: str | None = None
+
+
+class QueryHitVerifyPayload(BaseModel):
+    """查询缓存命中记录核对载荷；核对动作固定，保持与其它动作接口一致的契约。"""
+
+    action: str = "核对命中记录"
+    remark: str | None = None
+
+
 
 class MetricDefEntry(BaseModel):
     """指标明细结构。"""

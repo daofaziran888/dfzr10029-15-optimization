@@ -72,6 +72,50 @@
       </form>
     </div>
 
+    <div class="hit-panel" data-testid="query-hit-panel">
+      <div class="page-head">
+        <div>
+          <h3>查询缓存命中记录（跨模块共享）</h3>
+          <p class="page-desc">只读回查 OLAP 查询模块写入的命中记录，与查询页共享同一来源记录；筛选条件在翻页时保持不变。</p>
+        </div>
+      </div>
+      <form class="filter-bar" @submit.prevent="reloadQueryHits(1)">
+        <label v-for="field in queryHitFilterFields" :key="field" class="filter-item">
+          <span>{{ field }}</span>
+          <input v-model="queryHitFilters[field]" :data-testid="`query-hit-filter-${field}`" :placeholder="`按${field}检索`" />
+        </label>
+        <button class="btn" data-testid="query-hit-search" type="submit">查询</button>
+        <button class="btn ghost" data-testid="query-hit-reset" type="button" @click="resetQueryHitFilters">重置条件</button>
+      </form>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in queryHitColumns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="hit in queryHitRows" :key="String(hit.id)" :data-testid="`query-hit-row-${hit.id}`">
+            <td v-for="column in queryHitColumns" :key="column">
+              <span v-if="column === '命中状态'" class="badge" :class="hit[column] === '命中' ? 'badge-hit' : 'badge-miss'">{{ hit[column] }}</span>
+              <span v-else-if="column === '核对结果'" class="badge" :class="hit[column] === '核对一致' ? 'badge-ok' : 'badge-diff'">{{ hit[column] }}</span>
+              <span v-else>{{ hit[column] ?? '—' }}</span>
+            </td>
+          </tr>
+          <tr v-if="!queryHitRows.length">
+            <td :colspan="queryHitColumns.length" class="empty-state">暂无查询缓存命中记录</td>
+          </tr>
+        </tbody>
+      </table>
+      <footer class="page-foot">
+        <span>共 {{ queryHitTotal }} 条命中记录</span>
+        <span class="pager">
+          <button class="btn" data-testid="query-hit-prev" type="button" :disabled="queryHitPage <= 1" @click="reloadQueryHits(queryHitPage - 1)">上一页</button>
+          <span>第 {{ queryHitPage }} 页</span>
+          <button class="btn" data-testid="query-hit-next" type="button" :disabled="queryHitRows.length < QUERY_HIT_PAGE_SIZE" @click="reloadQueryHits(queryHitPage + 1)">下一页</button>
+        </span>
+      </footer>
+    </div>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条缓存管理记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
@@ -85,12 +129,16 @@ import { computed, onMounted, ref } from 'vue'
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
+type HitRow = Record<string, string | number | null>
 
 const ENDPOINT = '/api/cache'
 const columns = ["缓存编号", "缓存目标", "缓存策略", "过期秒数", "最大容量", "命中统计", "淘汰策略", "缓存状态"]
 const actions = ["保存配置", "启用缓存", "停用缓存"]
 const statuses = ["草稿", "已配置", "生效中", "已停用"]
 const metricNames = ["生效中缓存", "草稿配置", "缓存命中率"]
+const queryHitColumns = ["命中记录编号", "模板编号", "模板版本", "参数范围", "命中状态", "快照编号", "核对结果", "查询时间"]
+const queryHitFilterFields = ["模板编号", "模板版本", "命中状态", "核对结果", "快照编号"]
+const QUERY_HIT_PAGE_SIZE = 5
 
 const rows = ref<Row[]>([])
 const total = ref(0)
@@ -184,5 +232,38 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+const queryHitRows = ref<HitRow[]>([])
+const queryHitTotal = ref(0)
+const queryHitPage = ref(1)
+const queryHitFilters = ref<Record<string, string>>({})
+
+function queryHitQueryString(page: number): string {
+  const params = new URLSearchParams(queryHitFilters.value as Record<string, string>)
+  params.set('page', String(page))
+  params.set('size', String(QUERY_HIT_PAGE_SIZE))
+  return params.toString()
+}
+
+async function reloadQueryHits(page: number) {
+  queryHitPage.value = Math.max(1, page)
+  try {
+    const response = await request(`${ENDPOINT}/query_hits?${queryHitQueryString(queryHitPage.value)}`)
+    if (!response.ok) throw new Error('查询缓存命中记录读取失败')
+    const payload = await response.json()
+    queryHitRows.value = payload.items ?? []
+    queryHitTotal.value = payload.total ?? 0
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '查询缓存命中记录读取失败'
+  }
+}
+
+function resetQueryHitFilters() {
+  queryHitFilters.value = {}
+  void reloadQueryHits(1)
+}
+
+onMounted(() => {
+  void reload()
+  void reloadQueryHits(1)
+})
 </script>

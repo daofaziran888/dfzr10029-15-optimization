@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
 from app.services.cache import CacheService
+from app.services.query_cache import FILTER_FIELDS, query_cache_service
 
 router = APIRouter(prefix="/api/cache", tags=["缓存管理"])
 
@@ -25,6 +26,28 @@ def query_filters(request: Request) -> dict[str, str]:
         for key, value in request.query_params.items()
         if key in LIST_FIELDS and value.strip()
     }
+
+
+def hit_query_filters(request: Request) -> dict[str, str]:
+    """跨模块回查查询缓存命中记录时，沿用命中记录模块的筛选口径。"""
+    return {
+        key: value.strip()
+        for key, value in request.query_params.items()
+        if key in FILTER_FIELDS and value.strip()
+    }
+
+
+@router.get("/query_hits", response_model=PageResult[dict])
+def list_query_hits(
+    request: Request,
+    keyword: str | None = Query(default=None, description="按模板编号或命中记录编号检索"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+) -> PageResult[dict]:
+    """跨系统模块只读回查查询缓存命中记录，与OLAP查询模块共享同一来源记录。"""
+    items, total = query_cache_service.list_hits(
+        filters=hit_query_filters(request), keyword=keyword, page=page, size=size)
+    return PageResult(items=items, total=total, page=page, size=size)
 
 
 @router.get("", response_model=PageResult[dict])
